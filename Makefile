@@ -44,7 +44,7 @@ AOBJS=      bam_aux.o bam_index.o bam_plcmd.o sam_view.o bam_fastq.o \
             bam_tview.o bam_tview_curses.o bam_tview_html.o bam_lpileup.o \
             bam_quickcheck.o bam_addrprg.o bam_markdup.o tmp_file.o \
             bam_ampliconclip.o amplicon_stats.o bam_import.o bam_samples.o \
-            bam_consensus.o consensus_pileup.o reference.o reset.o cram_size.o
+            bam_consensus.o consensus_pileup.o reference.o reset.o cram_size.o tanuki.o
 LZ4OBJS  =  $(LZ4DIR)/lz4.o
 
 prefix      = /usr/local
@@ -141,8 +141,8 @@ print-version:
 LIBST_OBJS = sam_opts.o sam_utils.o bedidx.o bam.o
 
 
-samtools: $(AOBJS) $(LZ4OBJS) libst.a $(HTSLIB)
-	$(CC) $(ALL_LDFLAGS) -o $@ $(AOBJS) $(LZ4OBJS) libst.a $(HTSLIB_LIB) $(CURSES_LIB) -lm $(ALL_LIBS) -lpthread
+samtools: $(AOBJS) $(LZ4OBJS) ../mruby/build/host/lib/libmruby.a libst.a $(HTSLIB)
+	$(CC) $(ALL_LDFLAGS) -o $@ $(AOBJS) $(LZ4OBJS) ../mruby/build/host/lib/libmruby.a libst.a $(HTSLIB_LIB) $(CURSES_LIB) -lm $(ALL_LIBS) -lpthread
 
 # For building samtools and its test suite only: NOT to be installed.
 libst.a: $(LIBST_OBJS)
@@ -205,9 +205,15 @@ faidx.o: faidx.c config.h $(htslib_faidx_h) $(htslib_hts_h) $(htslib_hfile_h) $(
 padding.o: padding.c config.h $(htslib_kstring_h) $(htslib_sam_h) $(htslib_faidx_h) $(sam_opts_h) $(samtools_h)
 phase.o: phase.c config.h $(htslib_hts_h) $(htslib_sam_h) $(htslib_kstring_h) $(sam_opts_h) $(samtools_h) $(htslib_hts_os_h) $(htslib_kseq_h) $(htslib_khash_h) $(htslib_ksort_h)
 reference.o: reference.c config.h $(htslib_sam_h) $(htslib_cram_h) $(samtools_h) $(sam_opts_h)
+
+tanuki.o:
+	$(CC) tanuki.c -c -o $@ -L ../mruby/build/host/lib/ -I ../mruby/include -lm -lmruby
+
 sam_opts.o: sam_opts.c config.h $(sam_opts_h)
 sam_utils.o: sam_utils.c config.h $(sam_utils_h)
 sam_view.o: sam_view.c config.h $(htslib_sam_h) $(htslib_faidx_h) $(htslib_khash_h) $(htslib_kstring_h) $(htslib_hfile_h) $(htslib_thread_pool_h) $(htslib_hts_expr_h) $(samtools_h) $(sam_opts_h) $(bam_h) $(bedidx_h) $(sam_utils_h)
+	$(CC) $(CFLAGS) $(ALL_CPPFLAGS) -c -o $@ $< -L ../mruby/build/host/lib/ -I ../mruby/include -lm -lmruby
+
 sample.o: sample.c config.h $(sample_h) $(htslib_khash_h)
 stats_isize.o: stats_isize.c config.h $(stats_isize_h) $(htslib_khash_h)
 stats.o: stats.c config.h $(htslib_faidx_h) $(htslib_sam_h) $(htslib_hts_h) $(htslib_hts_defs_h) $(samtools_h) $(htslib_khash_h) $(htslib_kstring_h) $(stats_isize_h) $(sam_opts_h) $(bedidx_h)

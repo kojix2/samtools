@@ -46,6 +46,10 @@ DEALINGS IN THE SOFTWARE.  */
 #include "bedidx.h"
 #include "sam_utils.h"
 
+#include <mruby.h>
+#include <mruby/compile.h>
+#include <mruby/variable.h>
+
 KHASH_SET_INIT_STR(str)
 typedef khash_t(str) *strhash_t;
 
@@ -76,6 +80,7 @@ typedef struct samview_settings {
     int multi_region;
     char* tag;
     hts_filter_t *filter;
+    char* mruby_expr;
     int remove_flag;
     int add_flag;
     int unmap;
@@ -144,12 +149,43 @@ static inline uint8_t *skip_aux(uint8_t *s, uint8_t *end)
     }
 }
 
+int evaluate_expression(const sam_hdr_t *h, bam1_t *b, const char *expr) {
+    mrb_state *mrb = mrb_open();
+    if (!mrb) {
+        fprintf(stderr, "Could not initialize mruby\n");
+        return -1;
+    }
+
+    int mapq = b->core.qual;
+
+    mrb_value mapq_value = mrb_fixnum_value(mapq);
+    mrb_gv_set(mrb, mrb_intern_lit(mrb, "$mapq"), mapq_value);
+
+
+    // Load and execute mruby script
+    mrb_value result = mrb_load_string(mrb, expr);
+
+    // Get the boolean result
+    int eval_result = mrb_bool(result);
+
+    mrb_close(mrb);
+    return eval_result;
+}
+
 // Returns 0 to indicate read should be output 1 otherwise,
 // and -1 on error.
 static int process_aln(const sam_hdr_t *h, bam1_t *b, samview_settings_t* settings)
 {
     if (settings->filter) {
         int r = sam_passes_filter(h, b, settings->filter);
+        if (r < 0)  // err
+            return -1;
+        if (r == 0) // filter-out
+            return 1;
+    }
+
+    if (settings->mruby_expr) {
+        int r = evaluate_expression(h, b, settings->mruby_expr);
         if (r < 0)  // err
             return -1;
         if (r == 0) // filter-out
@@ -892,6 +928,7 @@ int main_samview(int argc, char *argv[])
         {"exclude-flags", required_argument, NULL, 'F'},
         {"expr", required_argument, NULL, 'e'},
         {"expression", required_argument, NULL, 'e'},
+        {"mruby", required_argument, NULL, 'E'},
         {"fai-reference", required_argument, NULL, 't'},
         {"fast", no_argument, NULL, '1'},
         {"fetch-pairs", no_argument, NULL, 'P'},
@@ -954,7 +991,7 @@ int main_samview(int argc, char *argv[])
     int tmp_flag;
 
     while ((c = getopt_long(argc, argv,
-                            "SbBcCt:h1Ho:O:q:f:F:G:ul:r:T:R:N:d:D:L:s:@:m:x:U:MXe:pPz:",
+                            "SbBcCt:h1Ho:O:q:f:F:G:ul:r:T:R:N:d:D:L:s:@:m:x:U:MXeE:pPz:",
                             lopts, NULL)) >= 0) {
         switch (c) {
         case 's':
@@ -1194,6 +1231,13 @@ int main_samview(int argc, char *argv[])
         case 'e':
             if (!(settings.filter = hts_filter_init(optarg))) {
                 print_error("main_samview", "Couldn't initialise filter");
+                return 1;
+            }
+            settings.count_rf = INT_MAX; // no way to know what we need
+            break;
+        case 'E':
+            if (!(settings.mruby_expr = strdup(optarg))) {
+                print_error("main_samview", "Couldn't allocate memory for MRuby expression");
                 return 1;
             }
             settings.count_rf = INT_MAX; // no way to know what we need

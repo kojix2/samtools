@@ -72,6 +72,7 @@ int main_import(int argc, char *argv[]);
 int main_samples(int argc, char *argv[]);
 int main_consensus(int argc, char *argv[]);
 int main_reference(int argc, char *argv[]);
+int main_tanuki(void);
 int main_reset(int argc, char *argv[]);
 int main_cram_size(int argc, char *argv[]);
 
@@ -207,6 +208,9 @@ static void usage(FILE *fp)
 "  -- Misc\n"
 "     help [cmd]     display this help message or help for [cmd]\n"
 "     version        detailed version information\n"
+"\n"
+"  -- Tanuki\n"
+"     tanuki         show a tanuki\n"
 "\n");
 }
 
@@ -292,6 +296,7 @@ int main(int argc, char *argv[])
     else if (strcmp(argv[1], "consensus") == 0) ret = main_consensus(argc-1, argv+1);
     else if (strcmp(argv[1], "reference") == 0) ret = main_reference(argc-1, argv+1);
     else if (strcmp(argv[1], "cram-size") == 0) ret = main_cram_size(argc-1, argv+1);
+    else if (strcmp(argv[1], "tanuki") == 0) ret = main_tanuki();
     else if (strcmp(argv[1], "version") == 0 || \
              strcmp(argv[1], "--version") == 0)
         long_version();
