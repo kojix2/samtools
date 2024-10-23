@@ -45,6 +45,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include "bam.h" // for bam_get_library and bam_remove_B
 #include "bedidx.h"
 #include "sam_utils.h"
+#include "sam_view_mruby.h"
 
 KHASH_SET_INIT_STR(str)
 typedef khash_t(str) *strhash_t;
@@ -76,6 +77,9 @@ typedef struct samview_settings {
     int multi_region;
     char* tag;
     hts_filter_t *filter;
+    char* mruby_expr;
+    mrb_state *mrb;
+    struct RProc *mruby_proc;
     int remove_flag;
     int add_flag;
     int unmap;
@@ -151,6 +155,14 @@ static int process_aln(const sam_hdr_t *h, bam1_t *b, samview_settings_t* settin
 {
     if (settings->filter) {
         int r = sam_passes_filter(h, b, settings->filter);
+        if (r < 0)  // err
+            return -1;
+        if (r == 0) // filter-out
+            return 1;
+    }
+
+    if (settings->mruby_expr) {
+        int r = evaluate_expression(settings->mrb, settings->mruby_proc, h, b);
         if (r < 0)  // err
             return -1;
         if (r == 0) // filter-out
@@ -901,6 +913,7 @@ int main_samview(int argc, char *argv[])
         {"exclude-no-readgroup", no_argument, NULL, 'n'},
         {"expr", required_argument, NULL, 'e'},
         {"expression", required_argument, NULL, 'e'},
+        {"mruby", required_argument, NULL, 'E'},
         {"fai-reference", required_argument, NULL, 't'},
         {"fast", no_argument, NULL, '1'},
         {"fetch-pairs", no_argument, NULL, 'P'},
@@ -963,7 +976,7 @@ int main_samview(int argc, char *argv[])
     int tmp_flag;
 
     while ((c = getopt_long(argc, argv,
-                            "SbBcCt:h1Ho:O:q:f:F:G:ul:r:T:R:N:d:D:L:s:@:m:x:U:MXe:pPz:n",
+                            "SbBcCt:h1Ho:O:q:f:F:G:ul:r:T:R:N:d:D:L:s:@:m:x:U:MXe:E:pPz:n",
                             lopts, NULL)) >= 0) {
         switch (c) {
         case 's':
@@ -1205,6 +1218,26 @@ int main_samview(int argc, char *argv[])
             if (!(settings.filter = hts_filter_init(optarg))) {
                 print_error("main_samview", "Couldn't initialise filter");
                 return 1;
+            }
+            settings.count_rf = INT_MAX; // no way to know what we need
+            break;
+        case 'E':
+            if (!(settings.mruby_expr = strdup(optarg))) {
+                print_error("main_samview", "Couldn't allocate memory for mruby expression");
+                ret = 1;
+                goto view_end;
+            }
+            settings.mrb = init_mruby();
+            if (!settings.mrb) {
+                fprintf(stderr, "Failed to initialize mruby\n");
+                ret = 1;
+                goto view_end;
+            }
+            settings.mruby_proc = compile_expression(settings.mrb, settings.mruby_expr);
+            if (!settings.mruby_proc) {
+                fprintf(stderr, "Failed to compile mruby expression\n");
+                ret = 1;
+                goto view_end;
             }
             settings.count_rf = INT_MAX; // no way to know what we need
             break;
@@ -1562,6 +1595,16 @@ view_end:
     if (settings.filter)
         hts_filter_free(settings.filter);
 
+    if (settings.mrb) {
+        finalize_mruby(settings.mrb);
+        settings.mrb = NULL;
+    }
+
+    if (settings.mruby_expr) {
+        free(settings.mruby_expr);
+        settings.mruby_expr = NULL;
+    }
+
     if (p.pool)
         hts_tpool_destroy(p.pool);
 
@@ -1620,6 +1663,7 @@ static int usage(FILE *fp, int exit_status, int is_long_help)
 "  -l, --library STR          ...are in library STR\n"
 "  -m, --min-qlen INT         ...cover >= INT query bases (as measured via CIGAR)\n"
 "  -e, --expr STR             ...match the filter expression STR\n"
+"  -E, --mruby STR            ...match the mruby expression STR\n"
 "  -f, --require-flags FLAG   ...have all of the FLAGs present\n"             //   F&x == x
 "  -F, --excl[ude]-flags FLAG ...have none of the FLAGs present\n"            //   F&x == 0
 "      --rf, --incl-flags, --include-flags FLAG\n"
